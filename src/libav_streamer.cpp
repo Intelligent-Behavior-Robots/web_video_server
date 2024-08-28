@@ -57,10 +57,10 @@ LibavStreamer::LibavStreamer(const async_web_server_cpp::HttpRequest &request,
         format_name), codec_name_(codec_name), content_type_(content_type), opt_(0), io_buffer_(0)
 {
 
-  bitrate_ = request.get_query_param_value_or_default<int>("bitrate", 100000);
+  bitrate_ = request.get_query_param_value_or_default<int>("bitrate", 150000);
   qmin_ = request.get_query_param_value_or_default<int>("qmin", 10);
   qmax_ = request.get_query_param_value_or_default<int>("qmax", 42);
-  gop_ = request.get_query_param_value_or_default<int>("gop", 250);
+  gop_ = request.get_query_param_value_or_default<int>("gop", 1);
 
   av_lockmgr_register(&ffmpeg_boost_mutex_lock_manager);
   av_register_all();
@@ -373,11 +373,11 @@ boost::shared_ptr<ImageStreamer> LibavStreamerType::create_streamer(const async_
 
 std::string LibavStreamerType::create_viewer(const async_web_server_cpp::HttpRequest &request)
 {
-  std::stringstream ss;
-  ss << "<video src=\"/stream?";
-  ss << request.query;
-  ss << "\" autoplay=\"true\" preload=\"none\"></video>";
-  return ss.str();
+std::stringstream ss;
+ss << "<video src=\"/stream?";
+ss << request.query; 
+ss << "\" autoplay=\"true\" preload=\"none\" controls></video>";
+return ss.str();
 }
 
 }
