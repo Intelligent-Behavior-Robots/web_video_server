@@ -51,11 +51,11 @@ void save_frame_as_jpeg(AVFrame *pFrame, int FrameNo) {
         std::cerr << "Error al enviar el frame al codificador." << std::endl;
     }
 
-    while (true) {
+
         // Intentar recibir un paquete del codificador
         if (avcodec_receive_packet(pOCodecCtx, &pkt) < 0) {
             // Si no se recibió un paquete, salir del bucle
-            break;
+            std::cerr << "Error al recibir el paquete del codificador." << std::endl;
         }
 
         char filename[32];
@@ -70,14 +70,14 @@ void save_frame_as_jpeg(AVFrame *pFrame, int FrameNo) {
         outFile.write((char *)pkt.data, pkt.size);
         outFile.close();
         av_packet_unref(&pkt);
-    }
+    
 
     avcodec_close(pOCodecCtx);
     avcodec_free_context(&pOCodecCtx);
 }
 
 int main(int argc, char **argv) {
-    const char *url = "http://localhost:8080/stream?topic=/cameras/frontright_fisheye_image/image";
+    const char *url = "http://localhost:8080/stream?topic=/cameras/left_fisheye_image/image&qos_profile=sensor_data";
     AVFormatContext *pFormatCtx = nullptr;
     AVCodecContext *pCodecCtx = nullptr;
     const AVCodec *pCodec = nullptr;
