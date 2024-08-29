@@ -12,6 +12,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+
 // Esta función guarda un frame como JPEG
 void save_frame_as_jpeg(AVFrame *pFrame, int FrameNo) {
     AVCodecContext *pOCodecCtx;
@@ -76,7 +77,33 @@ void save_frame_as_jpeg(AVFrame *pFrame, int FrameNo) {
     avcodec_free_context(&pOCodecCtx);
 }
 
+//Funcion que retorna el codec del streamer en base al parametro proporcionado
+AVCodec return_steamer_codec(const char *streamer_type){
+    if(strcmp(streamer_type, "mjpeg") == 0){
+        return *avcodec_find_decoder(AV_CODEC_ID_MJPEG);
+    }
+
+    else if(strcmp(streamer_type, "h264") == 0){
+        return *avcodec_find_decoder(AV_CODEC_ID_H264);
+    }
+}
+
 int main(int argc, char **argv) {
+    
+    if(argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <streamer_type>" << std::endl;
+        return -1;
+    }
+
+    else {
+
+        if(strcmp(argv[1], "mjpeg") != 0 && strcmp(argv[1], "h264") != 0){
+            std::cerr << "Invalid streamer type. Valid types are: mjpeg, h264" << std::endl;
+            return -1;
+        }
+    }
+
+
     const char *url = "http://localhost:8080/stream?topic=/cameras/left_fisheye_image/image&qos_profile=sensor_data";
     AVFormatContext *pFormatCtx = nullptr;
     AVCodecContext *pCodecCtx = nullptr;
@@ -116,8 +143,10 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    // Obtener el codec de video H.264
-    pCodec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    // Obtener el codec de video
+    auto codec = return_steamer_codec(argv[1]);
+    pCodec = &codec;
+ 
     if (!pCodec) {
         std::cerr << "Codec H.264 no encontrado" << std::endl;
         avformat_close_input(&pFormatCtx);
@@ -139,7 +168,7 @@ int main(int argc, char **argv) {
     }
 
     if (avcodec_open2(pCodecCtx, pCodec, nullptr) < 0) {
-        std::cerr << "No se pudo abrir el codec H.264" << std::endl;
+        std::cerr << "No se pudo abrir el codec especificado" << std::endl;
         avcodec_free_context(&pCodecCtx);
         avformat_close_input(&pFormatCtx);
         return -1;
@@ -166,7 +195,7 @@ int main(int argc, char **argv) {
                     break;
                 }
 
-                std::cout << "Frame decoded, saving as JPEG, frame count: " << frameCount << std::endl;
+                std::cout << "Frame decoded, saving as JPEG, frame count: " << frameCount << " Packet size:" <<  packet.size << " Time (seconds): " << packet.pts  * av_q2d(pFormatCtx->streams[videoStream]->time_base) << std::endl;
 
                 // Guardar el frame como JPEG
                 save_frame_as_jpeg(pFrame, frameCount++);
