@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.8)
 project(video_client_pkg)
 
-add_compile_options(-std=c++11)
 
-
+# Find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
@@ -16,22 +16,24 @@ pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
                   libswscale
                   libavfilter)
 
-find_package(CURL REQUIRED)
 
 
-include_directories(
-  ${CURL_INCLUDE_DIRS}
-)
-
+# Create executable
 add_executable(video_client_node src/main.cpp)
+
+
+ament_target_dependencies(video_client_node
+  rclcpp
+  std_msgs
+  sensor_msgs
+)
 
 
 target_link_libraries(video_client_node
   PkgConfig::LIBAV
-  ${CURL_LIBRARIES}
 )
 
-
+# Install the node
 install(TARGETS video_client_node
   DESTINATION lib/${PROJECT_NAME}
 )

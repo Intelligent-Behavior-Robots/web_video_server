@@ -3,6 +3,9 @@
 #include <cstring>
 #include <fstream>
 #include <vector>
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
+#include "sensor_msgs/msg/image.hpp"
 
 extern "C" {
 #include <libavutil/imgutils.h>
@@ -12,9 +15,30 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+// Declaración de variables globales para el nodo y el publisher
+rclcpp::Node::SharedPtr node = nullptr;
+rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr publisher_ = nullptr;
 
-// Esta función guarda un frame como JPEG
-void save_frame_as_jpeg(AVFrame *pFrame, int FrameNo) {
+
+ //TODO publicar la imagen en un topic de ROS 2 y que se pueda leer desde RViz2, 
+ //ahora mismo la imagen si se publica al topic pero RViz2 es incapaz de leerla  
+void publish_frame(AVCodecContext *pOCodecCtx, AVPacket pkt){
+
+  auto message = sensor_msgs::msg::Image();
+  message.header.frame_id = std::to_string(rclcpp::Clock().now().seconds());
+  message.height = pOCodecCtx->height;
+  message.width = pOCodecCtx->width;
+  message.encoding = "jpeg";
+  message.is_bigendian = 0;
+  message.step = pkt.size;
+  message.data = std::vector<uint8_t>(pkt.data, pkt.data + pkt.size);
+  
+    // Publicar la imagen
+  publisher_->publish(message);
+}
+
+// Esta función guarda un frame para posteriormente publicarlo a un topic
+void save_frame(AVFrame *pFrame, int FrameNo) {
     AVCodecContext *pOCodecCtx;
     const AVCodec *pOCodec;
     AVPacket pkt;
@@ -40,7 +64,7 @@ void save_frame_as_jpeg(AVFrame *pFrame, int FrameNo) {
     pOCodecCtx->codec_type = AVMEDIA_TYPE_VIDEO;
     pOCodecCtx->time_base = (AVRational){1, 25};
 
-    // Open the codec
+    // Abrir el codec
     if (avcodec_open2(pOCodecCtx, pOCodec, NULL) < 0) {
         std::cerr << "Could not open codec" << std::endl;
         avcodec_free_context(&pOCodecCtx);
@@ -52,57 +76,46 @@ void save_frame_as_jpeg(AVFrame *pFrame, int FrameNo) {
         std::cerr << "Error al enviar el frame al codificador." << std::endl;
     }
 
-
-        // Intentar recibir un paquete del codificador
-        if (avcodec_receive_packet(pOCodecCtx, &pkt) < 0) {
-            // Si no se recibió un paquete, salir del bucle
-            std::cerr << "Error al recibir el paquete del codificador." << std::endl;
-        }
-
-        char filename[32];
-        sprintf(filename, "frame%d.jpg", FrameNo);
-        std::ofstream outFile(filename, std::ios::out | std::ios::binary);
-        if (!outFile) {
-            std::cerr << "Error opening output file: " << filename << std::endl;
-            av_packet_unref(&pkt);
-            return;
-        }
-        std::cout << "Saving frame as JPEG: " << filename << std::endl;
-        outFile.write((char *)pkt.data, pkt.size);
-        outFile.close();
+    // Intentar recibir un paquete del codificador
+    if (avcodec_receive_packet(pOCodecCtx, &pkt) < 0) {
+        std::cerr << "Error al recibir el paquete del codificador." << std::endl;
+    } else {   
+        publish_frame(pOCodecCtx, pkt);
         av_packet_unref(&pkt);
-    
-
-    avcodec_close(pOCodecCtx);
-    avcodec_free_context(&pOCodecCtx);
+        avcodec_close(pOCodecCtx);
+        avcodec_free_context(&pOCodecCtx);
+    }       
 }
 
-//Funcion que retorna el codec del streamer en base al parametro proporcionado
+// Función que retorna el codec del streamer en base al parámetro proporcionado
 AVCodec return_steamer_codec(const char *streamer_type){
     if(strcmp(streamer_type, "mjpeg") == 0){
         return *avcodec_find_decoder(AV_CODEC_ID_MJPEG);
-    }
-
-    else if(strcmp(streamer_type, "h264") == 0){
+    } else if(strcmp(streamer_type, "h264") == 0){
         return *avcodec_find_decoder(AV_CODEC_ID_H264);
     }
+    return *avcodec_find_decoder(AV_CODEC_ID_NONE);
 }
 
 int main(int argc, char **argv) {
-    
     if(argc != 2) {
         std::cerr << "Usage: " << argv[0] << " <streamer_type>" << std::endl;
         return -1;
     }
 
-    else {
-
-        if(strcmp(argv[1], "mjpeg") != 0 && strcmp(argv[1], "h264") != 0){
-            std::cerr << "Invalid streamer type. Valid types are: mjpeg, h264" << std::endl;
-            return -1;
-        }
+    if(strcmp(argv[1], "mjpeg") != 0 && strcmp(argv[1], "h264") != 0){
+        std::cerr << "Invalid streamer type. Valid types are: mjpeg, h264" << std::endl;
+        return -1;
     }
 
+    // Inicializar ROS 2
+    rclcpp::init(argc, argv);
+
+    // Crear el nodo y el publisher
+    node = rclcpp::Node::make_shared("video_client_node");
+    publisher_ = node->create_publisher<sensor_msgs::msg::Image>("/images/frame_image", rclcpp::SensorDataQoS());
+
+    std::cout << "Starting video client node" << std::endl;
 
     const char *url = "http://localhost:8080/stream?topic=/cameras/left_fisheye_image/image&qos_profile=sensor_data";
     AVFormatContext *pFormatCtx = nullptr;
@@ -148,7 +161,7 @@ int main(int argc, char **argv) {
     pCodec = &codec;
  
     if (!pCodec) {
-        std::cerr << "Codec H.264 no encontrado" << std::endl;
+        std::cerr << "Codec no encontrado" << std::endl;
         avformat_close_input(&pFormatCtx);
         return -1;
     }
@@ -178,7 +191,7 @@ int main(int argc, char **argv) {
     int frameCount = 0;
 
     // Leer frames del stream
-    while (av_read_frame(pFormatCtx, &packet) >= 0) {
+    while (rclcpp::ok() && av_read_frame(pFormatCtx, &packet) >= 0) {
         if (packet.stream_index == videoStream) {
             int response = avcodec_send_packet(pCodecCtx, &packet);
             if (response < 0) {
@@ -195,10 +208,10 @@ int main(int argc, char **argv) {
                     break;
                 }
 
-                std::cout << "Frame decoded, saving as JPEG, frame count: " << frameCount << " Packet size:" <<  packet.size << " Time (seconds): " << packet.pts  * av_q2d(pFormatCtx->streams[videoStream]->time_base) << std::endl;
+                // Publicar la imagen decodificada
 
-                // Guardar el frame como JPEG
-                save_frame_as_jpeg(pFrame, frameCount++);
+                std::cout << "Frame decoded, saving as JPEG, frame count: " << frameCount << " Packet size:" <<  packet.size << " Time (seconds): " << packet.pts  * av_q2d(pFormatCtx->streams[videoStream]->time_base) << std::endl;
+                save_frame(pFrame, frameCount++);
             }
         }
 
@@ -208,6 +221,8 @@ int main(int argc, char **argv) {
     av_frame_free(&pFrame);
     avcodec_free_context(&pCodecCtx);
     avformat_close_input(&pFormatCtx);
+
+    rclcpp::shutdown();
 
     return 0;
 }
