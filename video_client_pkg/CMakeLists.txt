@@ -7,6 +7,8 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(cv_bridge REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
@@ -26,6 +28,8 @@ ament_target_dependencies(video_client_node
   rclcpp
   std_msgs
   sensor_msgs
+  OpenCV
+  cv_bridge
 )
 
 

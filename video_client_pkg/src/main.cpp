@@ -6,6 +6,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "sensor_msgs/msg/image.hpp"
+#include <cv_bridge/cv_bridge.h>
+#include <opencv2/opencv.hpp>
 
 extern "C" {
 #include <libavutil/imgutils.h>
@@ -20,25 +22,40 @@ rclcpp::Node::SharedPtr node = nullptr;
 rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr publisher_ = nullptr;
 
 
- //TODO publicar la imagen en un topic de ROS 2 y que se pueda leer desde RViz2, 
- //ahora mismo la imagen si se publica al topic pero RViz2 es incapaz de leerla  
-void publish_frame(AVCodecContext *pOCodecCtx, AVPacket pkt){
+//Función para publicar el frame decodificado a un topic de ROS 2
+void publish_frame(AVCodecContext *pOCodecCtx, AVFrame *pFrame) {
 
-  auto message = sensor_msgs::msg::Image();
-  message.header.frame_id = std::to_string(rclcpp::Clock().now().seconds());
-  message.height = pOCodecCtx->height;
-  message.width = pOCodecCtx->width;
-  message.encoding = "jpeg";
-  message.is_bigendian = 0;
-  message.step = pkt.size;
-  message.data = std::vector<uint8_t>(pkt.data, pkt.data + pkt.size);
+   int width = pOCodecCtx->width;
+    int height = pOCodecCtx->height;
+
   
-    // Publicar la imagen
-  publisher_->publish(message);
+    SwsContext *sws_ctx = sws_getContext(
+        width, height, pOCodecCtx->pix_fmt,
+        width, height, AV_PIX_FMT_GRAY8,  // Escala a formato de un canal de 8 bits
+        SWS_BILINEAR, nullptr, nullptr, nullptr
+    );
+
+    // Crear una imagen OpenCV para almacenar la imagen en escala de grises
+    cv::Mat img(height, width, CV_8UC1);  
+
+
+    uint8_t *dest[4] = { img.data, nullptr, nullptr, nullptr };
+    int dest_linesize[4] = { img.step, 0, 0, 0 };
+    sws_scale(sws_ctx, pFrame->data, pFrame->linesize, 0, height, dest, dest_linesize);
+
+
+    auto msg = cv_bridge::CvImage(std_msgs::msg::Header(), "mono8", img).toImageMsg();
+
+ 
+    publisher_->publish(*msg);
+
+ 
+    sws_freeContext(sws_ctx);
+    av_frame_free(&pFrame);
 }
 
-// Esta función guarda un frame para posteriormente publicarlo a un topic
-void save_frame(AVFrame *pFrame, int FrameNo) {
+// Esta función guarda un frame como JPEG
+void save_frame_as_jpeg(AVFrame *pFrame, int FrameNo) {
     AVCodecContext *pOCodecCtx;
     const AVCodec *pOCodec;
     AVPacket pkt;
@@ -64,7 +81,7 @@ void save_frame(AVFrame *pFrame, int FrameNo) {
     pOCodecCtx->codec_type = AVMEDIA_TYPE_VIDEO;
     pOCodecCtx->time_base = (AVRational){1, 25};
 
-    // Abrir el codec
+    // Open the codec
     if (avcodec_open2(pOCodecCtx, pOCodec, NULL) < 0) {
         std::cerr << "Could not open codec" << std::endl;
         avcodec_free_context(&pOCodecCtx);
@@ -76,17 +93,29 @@ void save_frame(AVFrame *pFrame, int FrameNo) {
         std::cerr << "Error al enviar el frame al codificador." << std::endl;
     }
 
-    // Intentar recibir un paquete del codificador
-    if (avcodec_receive_packet(pOCodecCtx, &pkt) < 0) {
-        std::cerr << "Error al recibir el paquete del codificador." << std::endl;
-    } else {   
-        publish_frame(pOCodecCtx, pkt);
-        av_packet_unref(&pkt);
-        avcodec_close(pOCodecCtx);
-        avcodec_free_context(&pOCodecCtx);
-    }       
-}
 
+        // Intentar recibir un paquete del codificador
+        if (avcodec_receive_packet(pOCodecCtx, &pkt) < 0) {
+            std::cerr << "Error al recibir el paquete del codificador." << std::endl;
+        }
+
+        char filename[32];
+        sprintf(filename, "frame%d.jpg", FrameNo);
+        std::ofstream outFile(filename, std::ios::out | std::ios::binary);
+        if (!outFile) {
+            std::cerr << "Error opening output file: " << filename << std::endl;
+            av_packet_unref(&pkt);
+            return;
+        }
+        std::cout << "Saving frame as JPEG: " << filename << std::endl;
+        outFile.write((char *)pkt.data, pkt.size);
+        outFile.close();
+        av_packet_unref(&pkt);
+
+
+    avcodec_close(pOCodecCtx);
+    avcodec_free_context(&pOCodecCtx);
+}
 // Función que retorna el codec del streamer en base al parámetro proporcionado
 AVCodec return_steamer_codec(const char *streamer_type){
     if(strcmp(streamer_type, "mjpeg") == 0){
@@ -210,8 +239,8 @@ int main(int argc, char **argv) {
 
                 // Publicar la imagen decodificada
 
-                std::cout << "Frame decoded, saving as JPEG, frame count: " << frameCount << " Packet size:" <<  packet.size << " Time (seconds): " << packet.pts  * av_q2d(pFormatCtx->streams[videoStream]->time_base) << std::endl;
-                save_frame(pFrame, frameCount++);
+                std::cout << "Frame decoded, Frame data: frame count: " << frameCount << " Packet size:" <<  packet.size << " Time (seconds): " << packet.pts  * av_q2d(pFormatCtx->streams[videoStream]->time_base) << std::endl;
+                publish_frame(pCodecCtx, pFrame);
             }
         }
 
