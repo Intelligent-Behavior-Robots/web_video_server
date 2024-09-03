@@ -3,13 +3,14 @@
 #include <cstring>
 #include <fstream>
 #include <vector>
+#include <ctime>
 
 extern "C" {
-#include <libavutil/imgutils.h>
-#include <libavutil/opt.h>
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
+#include "third_parties/include/libavutil/imgutils.h"
+#include "third_parties/include/libavutil/opt.h"
+#include "third_parties/include/libavformat/avformat.h"
+#include "third_parties/include/libavcodec/avcodec.h"
+#include "third_parties/include/libswscale/swscale.h"
 }
 
 
