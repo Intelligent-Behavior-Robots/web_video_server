@@ -51,7 +51,6 @@ void publish_frame(AVCodecContext *pOCodecCtx, AVFrame *pFrame) {
 
  
     sws_freeContext(sws_ctx);
-    av_frame_free(&pFrame);
 }
 
 // Esta función guarda un frame como JPEG
@@ -218,6 +217,8 @@ int main(int argc, char **argv) {
 
     pFrame = av_frame_alloc();
     int frameCount = 0;
+    float totalBytes = 0.0;
+    float totalTime = 0.0;
 
     // Leer frames del stream
     while (rclcpp::ok() && av_read_frame(pFormatCtx, &packet) >= 0) {
@@ -238,14 +239,23 @@ int main(int argc, char **argv) {
                 }
 
                 // Publicar la imagen decodificada
-
                 std::cout << "Frame decoded, Frame data: frame count: " << frameCount << " Packet size:" <<  packet.size << " Time (seconds): " << packet.pts  * av_q2d(pFormatCtx->streams[videoStream]->time_base) << std::endl;
+                frameCount++;
+                totalBytes += packet.size;
+                totalTime = packet.pts  * av_q2d(pFormatCtx->streams[videoStream]->time_base);
                 publish_frame(pCodecCtx, pFrame);
+
             }
         }
 
         av_packet_unref(&packet);
     }
+
+    float averageKilobytesPerSecond = (totalBytes / totalTime) / 1024;
+
+    std::cout << "Kilobytes en total: " << totalBytes / 1024 << std::endl;
+    std::cout << "Media de Kilobytes por segundo: " << averageKilobytesPerSecond  << std::endl;
+    std::cout << "Tiempo transcurrido en total: " << totalTime << " segundos" << std::endl;
 
     av_frame_free(&pFrame);
     avcodec_free_context(&pCodecCtx);
