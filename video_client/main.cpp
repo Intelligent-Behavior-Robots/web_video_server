@@ -11,6 +11,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
+
 }
 
 
@@ -89,7 +90,62 @@ AVCodec return_steamer_codec(const char *streamer_type){
     }
 }
 
+
+void print_avpacket(const AVPacket *pkt) {
+    std::cout << "AVPacket:" << std::endl;
+    std::cout << "  buf: " << (void *)pkt->buf << std::endl;
+    std::cout << "  pts: " << pkt->pts << std::endl;
+    std::cout << "  dts: " << pkt->dts << std::endl;
+    std::cout << "  data: " << (void *)pkt->data << std::endl;
+    std::cout << "  size: " << pkt->size << std::endl;
+    std::cout << "  stream_index: " << pkt->stream_index << std::endl;
+    std::cout << "  flags: " << pkt->flags << std::endl;
+    std::cout << "  side_data: " << (void *)pkt->side_data << std::endl;
+    std::cout << "  side_data_elems: " << pkt->side_data_elems << std::endl;
+    std::cout << "  duration: " << pkt->duration << std::endl;
+    std::cout << "  pos: " << pkt->pos << std::endl;
+}
+
+void printCodecContextInfo(AVCodecContext* codecCtx) {
+    std::cout << "Codec Context Information:" << std::endl;
+    std::cout << "Codec Name: " << codecCtx->codec->name << std::endl;
+    std::cout << "Codec Type: " << av_get_media_type_string(codecCtx->codec_type) << std::endl;
+    std::cout << "Codec ID: " << codecCtx->codec_id << std::endl;
+    std::cout << "Codec Bit Rate: " << codecCtx->bit_rate << std::endl;
+    std::cout << "Codec Width: " << codecCtx->width << std::endl;
+    std::cout << "Codec Height: " << codecCtx->height << std::endl;
+    
+}
+
+void printCodecInfo(const AVCodec *pCodec) {
+    if (pCodec) {
+        std::cout << "Codec Information:" << std::endl;
+        std::cout << "Name: " << pCodec->name << std::endl;
+        std::cout << "Long Name: " << pCodec->long_name << std::endl;
+        std::cout << "Type: " << av_get_media_type_string(pCodec->type) << std::endl;
+        std::cout << "ID: " << pCodec->id << std::endl;
+        std::cout << "Capabilities: " << pCodec->capabilities << std::endl;
+    } else {
+        std::cout << "Codec is nullptr" << std::endl;
+    }
+}
+
+void printFormatContextInfo(AVFormatContext *pFormatCtx) {
+    if (pFormatCtx) {
+        std::cout << "Format Context Information:" << std::endl;
+        std::cout << "Duration: " << pFormatCtx->duration << std::endl;
+        std::cout << "Bit Rate: " << pFormatCtx->bit_rate << std::endl;
+        std::cout << "Start Time: " << pFormatCtx->start_time << std::endl;
+        std::cout << "Number of Streams: " << pFormatCtx->nb_streams << std::endl;
+        std::cout << "Format Name: " << pFormatCtx->iformat->name << std::endl;
+        std::cout << "Format Long Name: " << pFormatCtx->iformat->long_name << std::endl;
+    } else {
+        std::cout << "Format Context is nullptr" << std::endl;
+    }
+}
+
 int main(int argc, char **argv) {
+    
     
     if(argc != 2) {
         std::cerr << "Usage: " << argv[0] << " <streamer_type>" << std::endl;
@@ -105,7 +161,7 @@ int main(int argc, char **argv) {
     }
 
 
-    const char *url = "http://localhost:8080/stream?topic=/cameras/left_fisheye_image/image&qos_profile=sensor_data";
+    const char *url = "http://192.168.2.239:8080/stream?topic=/cameras/left_fisheye_image/image&qos_profile=sensor_data";
     AVFormatContext *pFormatCtx = nullptr;
     AVCodecContext *pCodecCtx = nullptr;
     const AVCodec *pCodec = nullptr;
@@ -115,6 +171,10 @@ int main(int argc, char **argv) {
 
     // Inicializar FFmpeg
     avformat_network_init();
+
+   
+
+    std::cout << "Iniciando stream desde la URL: " << url << std::endl;
 
     // Abrir el stream desde la URL
     if (avformat_open_input(&pFormatCtx, url, nullptr, nullptr) != 0) {
@@ -129,7 +189,7 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    // Encontrar el stream de video H.264
+    // Encontrar el stream de video 
     videoStream = -1;
     for (unsigned i = 0; i < pFormatCtx->nb_streams; i++) {
         if (pFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
@@ -149,7 +209,7 @@ int main(int argc, char **argv) {
     pCodec = &codec;
  
     if (!pCodec) {
-        std::cerr << "Codec H.264 no encontrado" << std::endl;
+        std::cerr << "Codec no encontrado" << std::endl;
         avformat_close_input(&pFormatCtx);
         return -1;
     }
@@ -160,6 +220,10 @@ int main(int argc, char **argv) {
         avformat_close_input(&pFormatCtx);
         return -1;
     }
+
+
+
+
 
     if (avcodec_parameters_to_context(pCodecCtx, pFormatCtx->streams[videoStream]->codecpar) < 0) {
         std::cerr << "No se pudo copiar los parámetros del codec" << std::endl;
@@ -173,15 +237,27 @@ int main(int argc, char **argv) {
         avcodec_free_context(&pCodecCtx);
         avformat_close_input(&pFormatCtx);
         return -1;
-    }
-
+    } 
+    
+    //Cuando se ejecuta en android se quejaba de no tener el time_base
+    pCodecCtx->time_base = pFormatCtx->streams[videoStream]->time_base;
     pFrame = av_frame_alloc();
     int frameCount = 0;
+
+    printCodecInfo(pCodec);
+    printFormatContextInfo(pFormatCtx);
+
+
+  
 
     // Leer frames del stream
     while (av_read_frame(pFormatCtx, &packet) >= 0) {
         if (packet.stream_index == videoStream) {
             int response = avcodec_send_packet(pCodecCtx, &packet);
+            print_avpacket(&packet);
+            printCodecContextInfo(pCodecCtx);
+
+            std::cout << "Response: " << response << std::endl;
             if (response < 0) {
                 std::cerr << "Error al enviar el paquete al decodificador" << std::endl;
                 break;
@@ -196,10 +272,10 @@ int main(int argc, char **argv) {
                     break;
                 }
 
-                std::cout << "Frame decoded, saving as JPEG, frame count: " << frameCount << " Packet size:" <<  packet.size << " Time (seconds): " << packet.pts  * av_q2d(pFormatCtx->streams[videoStream]->time_base) << std::endl;
+              //std::cout << "Frame decoded, saving as JPEG, frame count: " << frameCount << " Packet size:" <<  packet.size << " Time (seconds): " << packet.pts  * av_q2d(pFormatCtx->streams[videoStream]->time_base) << std::endl;
 
                 // Guardar el frame como JPEG
-                save_frame_as_jpeg(pFrame, frameCount++);
+               // save_frame_as_jpeg(pFrame, frameCount++);
             }
         }
 
